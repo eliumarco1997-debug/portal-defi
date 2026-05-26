@@ -246,7 +246,7 @@ export const AppProvider = ({ children }) => {
         const totalUsd = rv ? rv.underlyingValue : (usd0 + usd1);
         totalLpValueUSD += totalUsd;
 
-        const unclaimed = rv ? rv.totalFees : ((pos.uncollected0 * price0) + (pos.uncollected1 * price1));
+        const unclaimed = rv ? ((rv.uncollectedFees0 * price0) + (rv.uncollectedFees1 * price1)) : ((pos.uncollected0 * price0) + (pos.uncollected1 * price1));
         const pnl = rv ? rv.pnlTotal : null;
         const pnlPercent = rv ? rv.pnlTotalPercent : null;
         const apr = rv ? rv.aprTotal : 0;
