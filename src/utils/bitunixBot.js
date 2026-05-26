@@ -4,7 +4,7 @@
  * sin depender de librerías externas ni exponer el secreto.
  */
 
-const BASE_URL = 'http://localhost:3001/bitunix-api'; // Utiliza el proxy backend local
+const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/bitunix-api` : 'http://localhost:3002/bitunix-api';
 
 // Mapa de corrección: tokens wrapped → símbolo real en Bitunix
 const SYMBOL_MAP = {

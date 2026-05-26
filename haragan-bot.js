@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import fs from 'fs';
+import https from 'https';
 
 dotenv.config();
 
@@ -78,7 +79,7 @@ async function bitunixRequest(endpoint, method, apiKey, apiSecret, body = {}) {
   const bodyString = Object.keys(body).length > 0 ? JSON.stringify(body) : '';
   const signature = generateBitunixSignature(apiKey, apiSecret, nonce, timestamp, '', bodyString);
 
-  const response = await fetch(`http://localhost:3001/bitunix-api${endpoint}`, {
+  const response = await fetch(`https://fapi.bitunix.com${endpoint}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -498,6 +499,43 @@ app.get('/api/bot/status', (req, res) => {
     activeProtections: activePools.length,
     pools: activePools
   });
+});
+
+
+app.use('/bitunix-api', (req, res) => {
+  const targetPath = req.url;
+  const options = {
+    hostname: 'fapi.bitunix.com',
+    path: targetPath,
+    method: req.method,
+    headers: {
+      'Content-Type': req.headers['content-type'] || 'application/json',
+      ...(req.headers['api-key'] && { 'api-key': req.headers['api-key'] }),
+      ...(req.headers['sign'] && { 'sign': req.headers['sign'] }),
+      ...(req.headers['timestamp'] && { 'timestamp': req.headers['timestamp'] }),
+      ...(req.headers['nonce'] && { 'nonce': req.headers['nonce'] }),
+      'User-Agent': 'Mozilla/5.0',
+      'Accept': 'application/json'
+    }
+  };
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': proxyRes.headers['content-type'] || 'application/json'
+    });
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on('error', (e) => {
+    res.status(500).send(`Proxy Error: ${e.message}`);
+  });
+
+  if (req.method === 'POST' || req.method === 'PUT') {
+    req.pipe(proxyReq, { end: true });
+  } else {
+    proxyReq.end();
+  }
 });
 
 app.listen(PORT, () => {

@@ -57,7 +57,7 @@ export default function CoberturaModal() {
       const triggerPrice = activePosition.priceMin;
       const marginRequired = (activePosition.totalUsd || 0) / cobLeverage;
 
-      const botRes = await fetch('http://localhost:3002/api/bot/protect', {
+      const botRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/bot/protect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

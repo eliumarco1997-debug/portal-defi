@@ -106,7 +106,7 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const fetchBotStatus = async () => {
       try {
-        const res = await fetch('http://localhost:3002/api/bot/status');
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/bot/status`);
         if (res.ok) {
           const status = await res.json();
           setBotStatus(status);
@@ -298,7 +298,7 @@ export const AppProvider = ({ children }) => {
     if (isActive) {
       setAutoGuardPools(prev => { const u = {...prev}; delete u[posId]; return u; });
       try {
-        await fetch('http://localhost:3002/api/bot/unprotect', {
+        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/bot/unprotect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ poolAddress: pos.poolAddress })
@@ -321,7 +321,7 @@ export const AppProvider = ({ children }) => {
       }));
 
       try {
-        await fetch('http://localhost:3002/api/bot/protect', {
+        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/bot/protect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
