@@ -559,7 +559,7 @@ if (fs.existsSync(path.join(__dirname, 'dist'))) {
   });
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n=================================================`);
   console.log(`🛡️  Motor "El Haragán" iniciado en el puerto ${PORT}`);
   console.log(`=================================================`);
