@@ -538,6 +538,27 @@ app.use('/bitunix-api', (req, res) => {
   }
 });
 
+// Serve the static frontend build
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Ensure that we only serve static files in production or when dist/ exists
+if (fs.existsSync(path.join(__dirname, 'dist'))) {
+  app.use(express.static(path.join(__dirname, 'dist')));
+  
+  // Wildcard route to handle React Router navigation
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+} else {
+  app.get('*', (req, res) => {
+    res.status(404).send('La interfaz visual no está construida. Ejecuta "npm run build" o revisa la carpeta dist.');
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`\n=================================================`);
   console.log(`🛡️  Motor "El Haragán" iniciado en el puerto ${PORT}`);
