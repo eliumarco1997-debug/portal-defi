@@ -10,7 +10,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
-const WSS_RPC_URL = process.env.WSS_RPC_URL;
+const WSS_RPC_URL = process.env.WSS_RPC_URL || 'wss://arb-mainnet.g.alchemy.com/v2/znxN0ZZnPA2F1f62XbSwR';
 
 const ENV_API_KEY = process.env.BITUNIX_API_KEY;
 const ENV_API_SECRET = process.env.BITUNIX_API_SECRET;
