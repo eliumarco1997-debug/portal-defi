@@ -54,7 +54,9 @@ export default function HaraganPage() {
                   <span className="hp-badge-chain">{pos.chain || 'Arbitrum'}</span>
                   <span className="hp-current-price">{formatPrice(pos.priceCurrent)}</span>
                   {activeProtections[pos.id] && (
-                    <span className="hp-badge-protected">🛡️ SHORT ACTIVO</span>
+                    <span className={activeProtections[pos.id].isMonitoring ? 'hp-badge-monitoring' : 'hp-badge-protected'}>
+                      {activeProtections[pos.id].isMonitoring ? '👁️ VIGILANDO' : '🛡️ SHORT ACTIVO'}
+                    </span>
                   )}
                 </div>
                 <div className="hp-header-right">

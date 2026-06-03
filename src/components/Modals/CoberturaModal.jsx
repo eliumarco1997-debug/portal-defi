@@ -77,6 +77,8 @@ export default function CoberturaModal() {
       const data = await botRes.json();
       if (!data.success) throw new Error(data.error || 'Error al conectar con el motor El Haragán');
       
+      const hedgeOpened = data.hedgeOpened === true;
+      
       setAutoGuardPools(prev => ({
         ...prev,
         [String(activePosition.id)]: {
@@ -84,7 +86,7 @@ export default function CoberturaModal() {
           triggerPrice,
           leverage: cobLeverage,
           stopLoss: cobStopLoss,
-          triggered: false,
+          triggered: hedgeOpened,
           poolAddress: activePosition.poolAddress,
           activatedAt: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
         }
@@ -101,11 +103,14 @@ export default function CoberturaModal() {
           margin: marginRequired,
           totalValue: activePosition.totalUsd || 0,
           timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
-          isMonitoring: true
+          isMonitoring: !hedgeOpened
         }
       }));
       
-      setBotMessage(`✅ Éxito: Protección registrada. Esperando caída del precio...`);
+      const msg = hedgeOpened 
+        ? `✅ ¡SHORT abierto exitosamente en Bitunix! Protección activa.`
+        : `✅ Bot vigilando. Se abrirá SHORT automáticamente si el precio sale del rango.`;
+      setBotMessage(msg);
       setTimeout(() => { setShowCoberturaModal(false); setCobStep(1); setBotMessage(''); }, 2000);
     } catch (e) {
       if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {

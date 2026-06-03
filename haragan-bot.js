@@ -421,31 +421,50 @@ app.post('/api/bot/protect', async (req, res) => {
     console.log(`   Límite inferior: ${lowerBound} | Stop-loss recovery: ${stopLossPct}%`);
     console.log(`   El SHORT se abrirá automáticamente cuando el precio caiga por debajo de ${lowerBound}`);
 
-    // Evaluar precio inmediato y disparar el SHORT DE UNA VEZ, sin importar el límite
+    // Evaluar precio inmediato y disparar el SHORT si está fuera de rango
+    let hedgeOpened = false;
+    let hedgeError = null;
     try {
       const slot0 = await poolContract.slot0();
-      console.log(`⚡ Ejecutando protección (SHORT) de forma INMEDIATA al activar...`);
-
       const sqrtPrice = Number(slot0.sqrtPriceX96) / (2 ** 96);
       let price = sqrtPrice ** 2 * (10 ** Number(decimals0)) / (10 ** Number(decimals1));
-      // Si está invertido (WETH/USDC vs USDC/WETH), se podría ajustar, 
-      // pero usaremos el precio directo para simplificar la prueba.
       if (price < 0.0001) {
         price = (1 / (sqrtPrice ** 2)) * (10 ** Number(decimals1)) / (10 ** Number(decimals0));
       }
+      console.log(`📊 Precio actual: ${price.toFixed(4)} | Límite inferior: ${lowerBound}`);
 
-      const success = await placeHedgeOrder(protectedPools[poolAddress], price);
-      if (success) {
-        protectedPools[poolAddress].isHedged = true;
-        protectedPools[poolAddress].hedgeEntryPrice = price;
-        saveState();
-        console.log(`📌 ¡Listo! SHORT abierto automáticamente en Bitunix al momento del clic. Precio: ${price.toFixed(4)}`);
+      if (price < lowerBound) {
+        console.log(`⚡ Precio por debajo del límite. Ejecutando SHORT INMEDIATO...`);
+        const success = await placeHedgeOrder(protectedPools[poolAddress], price);
+        if (success) {
+          protectedPools[poolAddress].isHedged = true;
+          protectedPools[poolAddress].hedgeEntryPrice = price;
+          saveState();
+          hedgeOpened = true;
+          console.log(`📌 ¡SHORT abierto en Bitunix! Precio: ${price.toFixed(4)}`);
+        } else {
+          hedgeError = 'Bitunix rechazó la orden. Revisa tus claves API y que tengas saldo USDT en futuros.';
+          console.error(`❌ Bitunix rechazó la orden SHORT.`);
+        }
+      } else {
+        console.log(`✅ Precio dentro del rango. Bot vigilando... se abrirá SHORT si baja de ${lowerBound}`);
       }
     } catch (e) {
-      console.log(`⚠️ No se pudo ejecutar la orden inmediata: ${e.message}`);
+      hedgeError = e.message;
+      console.log(`⚠️ No se pudo evaluar precio: ${e.message}`);
     }
 
-    res.json({ success: true, message: `Guardia activa y SHORT disparado para ${symbol0}/${symbol1}`, poolAddress });
+    if (hedgeError) {
+      // Limpiar el pool protegido si falló
+      delete protectedPools[poolAddress];
+      saveState();
+      return res.status(500).json({ success: false, error: hedgeError });
+    }
+
+    const msg = hedgeOpened 
+      ? `SHORT abierto exitosamente para ${symbol0}/${symbol1}` 
+      : `Vigilancia activa para ${symbol0}/${symbol1}. SHORT se abrirá automáticamente al salir de rango.`;
+    res.json({ success: true, hedgeOpened, message: msg, poolAddress });
 
   } catch (error) {
     console.error("❌ Error al proteger pool:", error.message);

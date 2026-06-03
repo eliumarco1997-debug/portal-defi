@@ -2317,6 +2317,23 @@
   50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
 }
 
+.hp-badge-monitoring {
+  background: linear-gradient(135deg, rgba(245,158,11,0.2), rgba(245,158,11,0.1));
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  animation: pulse-amber 2s ease-in-out infinite;
+}
+
+@keyframes pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+}
+
 .hp-protection-active {
   background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(10,10,20,0.6));
   border: 1px solid rgba(16, 185, 129, 0.3);
