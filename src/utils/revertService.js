@@ -3,7 +3,7 @@
  * via la API de Revert Finance (datos históricos, PNL, APR, etc.)
  */
 
-const REVERT_BASE_URL = 'https://api.revert.finance/v1/positions';
+const REVERT_BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/revert-api/v1/positions` : (import.meta.env.DEV ? 'http://localhost:3002/revert-api/v1/positions' : '/revert-api/v1/positions');
 
 const CHAIN_MAP = {
   arbitrum: 'arbitrum',

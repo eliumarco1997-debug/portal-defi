@@ -538,6 +538,37 @@ app.use('/bitunix-api', (req, res) => {
   }
 });
 
+app.use('/revert-api', (req, res) => {
+  const targetPath = req.url;
+  const options = {
+    hostname: 'api.revert.finance',
+    path: targetPath,
+    method: req.method,
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0'
+    }
+  };
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': proxyRes.headers['content-type'] || 'application/json'
+    });
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on('error', (e) => {
+    res.status(500).send(`Proxy Error: ${e.message}`);
+  });
+
+  if (req.method === 'POST' || req.method === 'PUT') {
+    req.pipe(proxyReq, { end: true });
+  } else {
+    proxyReq.end();
+  }
+});
+
 // Serve the static frontend build
 import path from 'path';
 import { fileURLToPath } from 'url';
