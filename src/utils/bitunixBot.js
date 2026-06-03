@@ -4,7 +4,7 @@
  * sin depender de librerías externas ni exponer el secreto.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/bitunix-api` : 'http://localhost:3002/bitunix-api';
+const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/bitunix-api` : (import.meta.env.DEV ? 'http://localhost:3002/bitunix-api' : '/bitunix-api');
 
 // Mapa de corrección: tokens wrapped → símbolo real en Bitunix
 const SYMBOL_MAP = {

@@ -57,7 +57,7 @@ export default function CoberturaModal() {
       const triggerPrice = activePosition.priceMin;
       const marginRequired = (activePosition.totalUsd || 0) / cobLeverage;
 
-      const botRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/bot/protect`, {
+      const botRes = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/protect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,8 +108,8 @@ export default function CoberturaModal() {
       setBotMessage(`✅ Éxito: Protección registrada. Esperando caída del precio...`);
       setTimeout(() => { setShowCoberturaModal(false); setCobStep(1); setBotMessage(''); }, 2000);
     } catch (e) {
-      if (e.message.includes('Failed to fetch')) {
-        setBotMessage(`❌ Error de Conexión. Asegúrate de que el backend haragan-bot.js esté corriendo (npm run bot).`);
+      if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+        setBotMessage(`❌ Error de Conexión. Asegúrate de que el backend haragan-bot.js esté corriendo (npm start).`);
       } else {
         setBotMessage(`❌ Error: ${e.message}`);
       }
@@ -222,6 +222,9 @@ export default function CoberturaModal() {
                       <span style={{ fontWeight: '700', color: '#10b981', fontSize: '1rem' }}>~${((activePosition.totalUsd || 0) / cobLeverage).toFixed(2)}</span>
                     </div>
                     <div className="prot-slider-container">
+                      <div style={{ textAlign: 'center', marginBottom: '8px', fontSize: '1.4rem', fontWeight: 'bold', color: '#f59e0b', textShadow: '0 0 10px rgba(245,158,11,0.5)' }}>
+                        {cobLeverage}x
+                      </div>
                       <input 
                         type="range" min="1" max="25" 
                         value={cobLeverage} onChange={(e) => setCobLeverage(e.target.value)} 
