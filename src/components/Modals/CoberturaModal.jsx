@@ -22,12 +22,19 @@ export default function CoberturaModal() {
     return true;
   };
 
-  const toBitunixSymbol = (sym) => {
-    if (!sym) return 'ETH';
+  const toBitunixSymbol = (sym, quoteSym) => {
+    if (!sym) return 'ETHUSDT';
     let s = sym.toUpperCase();
-    if (s === 'WETH') return 'ETH';
-    if (s === 'WBTC') return 'BTC';
-    return s;
+    if (s === 'WETH') s = 'ETH';
+    if (s === 'WBTC') s = 'BTC';
+    // Detectar quote de la pool
+    let quote = 'USDT';
+    if (quoteSym) {
+      const q = quoteSym.toUpperCase();
+      if (q === 'USDC' || q === 'USDC.E') quote = 'USDC';
+      else if (q === 'USDT' || q === 'USDT.E') quote = 'USDT';
+    }
+    return `${s}${quote}`;
   };
 
   const executeBotOrder = async () => {
@@ -39,7 +46,27 @@ export default function CoberturaModal() {
     const activePosition = lpPositions.find(p => p.id === selectedCobPosition) || selectedLpDetails;
     if (!activePosition) return;
     
-    const symbol = toBitunixSymbol(activePosition.token0.symbol);
+    // Detectar cuál token es la stablecoin de la pool
+    const stablecoins = ['USDC', 'USDT', 'USDC.E', 'USDT.E', 'DAI', 'USDC.e', 'USDt'];
+    const t0Upper = activePosition.token0.symbol.toUpperCase();
+    const t1Upper = activePosition.token1.symbol.toUpperCase();
+    
+    let baseToken, quoteToken;
+    if (stablecoins.includes(t1Upper)) {
+      // token1 es la stablecoin (caso normal: WETH/USDC)
+      baseToken = activePosition.token0.symbol;
+      quoteToken = activePosition.token1.symbol;
+    } else if (stablecoins.includes(t0Upper)) {
+      // token0 es la stablecoin (caso invertido: USDC/WETH)
+      baseToken = activePosition.token1.symbol;
+      quoteToken = activePosition.token0.symbol;
+    } else {
+      // Ninguno es stablecoin, usar token0 con USDT por defecto
+      baseToken = activePosition.token0.symbol;
+      quoteToken = 'USDT';
+    }
+    
+    const symbol = toBitunixSymbol(baseToken, quoteToken);
     const priceForSizing = activePosition.priceCurrent || activePosition.price0 || 1;
     let rawSize = (activePosition.totalUsd || 0) / priceForSizing;
     let size = parseFloat(rawSize.toFixed(4));

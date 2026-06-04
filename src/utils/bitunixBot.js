@@ -18,20 +18,37 @@ const SYMBOL_MAP = {
 // Tamaño de contrato por par en Bitunix Futures (qty = tokens / contractSize)
 const CONTRACT_SIZE = {
   'ETHUSDT':  0.01,
+  'ETHUSDC':  0.01,
   'BTCUSDT':  0.001,
+  'BTCUSDC':  0.001,
   'MATICUSDT': 1,
+  'MATICUSDC': 1,
   'BNBUSDT':  0.01,
+  'BNBUSDC':  0.01,
   'AVAXUSDT': 0.1,
+  'AVAXUSDC': 0.1,
 };
 
 /**
  * Convierte un símbolo de token LP al par correcto de Bitunix.
- * Ej: "WETH" → "ETHUSDT"
+ * Usa la stablecoin de la pool como quote.
+ * Ej: ("WETH", "USDC") → "ETHUSDC"
+ *     ("WETH", "USDT") → "ETHUSDT"
+ *     ("WETH")         → "ETHUSDT" (fallback)
  */
-export function toBitunixSymbol(tokenSymbol) {
+export function toBitunixSymbol(tokenSymbol, quoteSymbol) {
   const upper = tokenSymbol.toUpperCase();
   const mapped = SYMBOL_MAP[upper] || upper;
-  return `${mapped}USDT`;
+  // Determinar la moneda de cotización
+  let quote = 'USDT'; // fallback
+  if (quoteSymbol) {
+    const q = quoteSymbol.toUpperCase();
+    if (q === 'USDC' || q === 'USDC.E') quote = 'USDC';
+    else if (q === 'USDT' || q === 'USDT.E') quote = 'USDT';
+    else if (q === 'DAI') quote = 'USDT'; // DAI no tiene par directo, usar USDT
+    else quote = 'USDT';
+  }
+  return `${mapped}${quote}`;
 }
 
 /**
@@ -166,12 +183,14 @@ export async function openBitunixPosition(symbol, side, size, credentials, lever
 
 /**
  * Helper rápido para abrir SHORT.
- * Convierte automáticamente el símbolo (WETH→ETH) y la qty a contratos.
+ * Si el símbolo ya es un par completo (ETHUSDC, ETHUSDT), lo usa directo.
+ * Si no, lo convierte con toBitunixSymbol.
  */
 export async function openShortPosition(symbol, sizeInTokens, credentials, leverage = 10) {
-  const correctedSymbol = toBitunixSymbol(symbol.replace('USDT', '')); // por si ya viene con USDT
+  // Si ya es un par completo (contiene USDT o USDC), usarlo directo
+  const upper = symbol.toUpperCase();
+  const correctedSymbol = (upper.endsWith('USDT') || upper.endsWith('USDC')) ? upper : toBitunixSymbol(symbol);
   
-  // Usamos el tamaño en tokens directamente formateado a 4 decimales
   const finalSize = parseFloat(Number(sizeInTokens).toFixed(4));
   return openBitunixPosition(correctedSymbol, 'SELL', finalSize, credentials, leverage);
 }
@@ -180,7 +199,8 @@ export async function openShortPosition(symbol, sizeInTokens, credentials, lever
  * Helper rápido para abrir LONG.
  */
 export async function openLongPosition(symbol, sizeInTokens, credentials, leverage = 10) {
-  const correctedSymbol = toBitunixSymbol(symbol.replace('USDT', ''));
+  const upper = symbol.toUpperCase();
+  const correctedSymbol = (upper.endsWith('USDT') || upper.endsWith('USDC')) ? upper : toBitunixSymbol(symbol);
   const finalSize = parseFloat(Number(sizeInTokens).toFixed(4));
   return openBitunixPosition(correctedSymbol, 'BUY', finalSize, credentials, leverage);
 }
@@ -195,7 +215,8 @@ export async function closeShortPosition(symbol, sizeInTokens, credentials) {
   const { apiKey, apiSecret } = credentials;
   if (!apiKey || !apiSecret) throw new Error('Faltan credenciales de Bitunix');
 
-  const correctedSymbol = toBitunixSymbol(symbol.replace('USDT', ''));
+  const upper = symbol.toUpperCase();
+  const correctedSymbol = (upper.endsWith('USDT') || upper.endsWith('USDC')) ? upper : toBitunixSymbol(symbol);
   const finalSize = parseFloat(Number(sizeInTokens).toFixed(4));
 
   const endpoint = '/api/v1/futures/trade/place_order';

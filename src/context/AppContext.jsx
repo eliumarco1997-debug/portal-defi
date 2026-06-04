@@ -308,7 +308,22 @@ export const AppProvider = ({ children }) => {
       }
     } else {
       const triggerPrice = pos.priceMin * 1.02;
-      const hedgeSymbol = toBitunixSymbol(pos.token0.symbol);
+      // Detectar la stablecoin de la pool
+      const stablecoins = ['USDC', 'USDT', 'USDC.E', 'USDT.E', 'DAI'];
+      const t0 = pos.token0.symbol.toUpperCase();
+      const t1 = pos.token1.symbol.toUpperCase();
+      let baseToken, quoteToken;
+      if (stablecoins.includes(t1)) {
+        baseToken = pos.token0.symbol;
+        quoteToken = pos.token1.symbol;
+      } else if (stablecoins.includes(t0)) {
+        baseToken = pos.token1.symbol;
+        quoteToken = pos.token0.symbol;
+      } else {
+        baseToken = pos.token0.symbol;
+        quoteToken = 'USDT';
+      }
+      const hedgeSymbol = toBitunixSymbol(baseToken, quoteToken);
       const priceForSize = pos.priceCurrent || pos.price0 || 1;
       const hedgeQtyTokens = (pos.totalUsd || 0) / priceForSize;
 
