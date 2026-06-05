@@ -131,6 +131,31 @@ export default function HaraganPage() {
                           {activeProtections[pos.id].isMonitoring ? 'VIGILANDO' : 'SHORT ACTIVO'}
                         </span>
                       </div>
+
+                      {/* ── INDICADOR DE SINCRONÍA CON EL BOT DE RAILWAY ── */}
+                      {(() => {
+                        const botHasPool = botStatus?.pools?.some(
+                          bp => pos.poolAddress && bp.address.toLowerCase() === pos.poolAddress.toLowerCase()
+                        );
+                        const botOnline = botStatus?.connectedToWSS;
+                        if (!botStatus) return null;
+                        if (!botOnline) return (
+                          <div style={{ margin: '8px 0', padding: '8px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', fontSize: '0.78rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🔴 <strong>Bot desconectado</strong> — El motor no está corriendo. La vigilancia está INACTIVA.
+                          </div>
+                        );
+                        if (!botHasPool) return (
+                          <div style={{ margin: '8px 0', padding: '8px 12px', borderRadius: '8px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', fontSize: '0.78rem', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🟡 <strong>Re-sincronizando con el motor...</strong> El bot reinició y está recuperando tu pool automáticamente.
+                          </div>
+                        );
+                        return (
+                          <div style={{ margin: '8px 0', padding: '8px 12px', borderRadius: '8px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '0.78rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🟢 <strong>Motor confirmado</strong> — El bot de Railway tiene tu pool registrado y está vigilando.
+                          </div>
+                        );
+                      })()}
+
                       <div className="hp-prot-details">
                         <div className="hp-prot-detail-item">
                           <span>Par</span>

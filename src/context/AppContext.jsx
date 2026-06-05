@@ -133,6 +133,76 @@ export const AppProvider = ({ children }) => {
               });
               return changed ? updated : prev;
             });
+
+            // ── AUTO-RECOVERY: si el navegador tiene pools activos pero el bot los olvidó
+            // (ej. Railway reinició), los re-registramos automáticamente
+            const autoGuardSaved = localStorage.getItem('autoGuardPools');
+            const savedGuards = autoGuardSaved ? JSON.parse(autoGuardSaved) : {};
+
+            for (const [posId, guard] of Object.entries(savedGuards)) {
+              if (!guard?.active || !guard?.poolAddress) continue;
+
+              // Verificar si el bot ya tiene este pool registrado
+              const alreadyInBot = status.pools.some(
+                bp => bp.address.toLowerCase() === guard.poolAddress.toLowerCase()
+              );
+              if (alreadyInBot) continue;
+
+              // El bot no lo tiene — buscar los datos del LP para re-registrar
+              const lp = lpPositions.find(p => String(p.id) === String(posId));
+              if (!lp || !lp.poolAddress) continue;
+
+              const apiKey    = localStorage.getItem('newWalletApiKey')    || '';
+              const apiSecret = localStorage.getItem('newWalletApiSecret') || '';
+
+              const stablecoins = ['USDC', 'USDT', 'USDC.E', 'USDT.E', 'DAI'];
+              const t0 = lp.token0.symbol.toUpperCase();
+              const t1 = lp.token1.symbol.toUpperCase();
+              let baseToken, quoteToken;
+              if (stablecoins.includes(t1))      { baseToken = lp.token0.symbol; quoteToken = lp.token1.symbol; }
+              else if (stablecoins.includes(t0)) { baseToken = lp.token1.symbol; quoteToken = lp.token0.symbol; }
+              else                               { baseToken = lp.token0.symbol; quoteToken = 'USDT'; }
+
+              const symMap = { WETH:'ETH', WBTC:'BTC', WMATIC:'MATIC', WAVAX:'AVAX', WBNB:'BNB' };
+              const base   = symMap[baseToken.toUpperCase()] || baseToken.toUpperCase();
+              const quote  = quoteToken.toUpperCase().includes('USDC') ? 'USDC' : 'USDT';
+              const hedgeSymbol = `${base}${quote}`;
+
+              const priceForSize  = lp.priceCurrent || lp.price0 || 1;
+              const hedgeQtyTokens = (lp.totalUsd || 0) / priceForSize;
+
+              const lowerBound = guard.triggerPrice || lp.priceMin;
+              const upperBound = lp.priceMax;
+              const leverage   = guard.leverage  || 10;
+              const stopLoss   = guard.stopLoss  || 0.5;
+
+              console.log(`[Auto-Recovery] Re-registrando pool ${lp.token0.symbol}/${lp.token1.symbol} en el bot...`);
+
+              fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/protect`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  poolAddress:      lp.poolAddress,
+                  lowerBound,
+                  upperBound,
+                  hedgeSymbol,
+                  hedgeQty:         String(hedgeQtyTokens.toFixed(4)),
+                  hedgeLeverage:    leverage,
+                  stopLossPct:      stopLoss,
+                  bitunixApiKey:    apiKey,
+                  bitunixApiSecret: apiSecret,
+                  orderType:        localStorage.getItem('cobOrderType') || 'LIMIT'
+                })
+              }).then(r => r.json()).then(data => {
+                if (data.success) {
+                  console.log(`[Auto-Recovery] ✅ Pool re-registrado correctamente.`);
+                } else {
+                  console.warn(`[Auto-Recovery] ⚠️ No se pudo re-registrar: ${data.error}`);
+                }
+              }).catch(err => {
+                console.warn('[Auto-Recovery] Error de red:', err.message);
+              });
+            }
           }
         }
       } catch { setBotStatus(null); }

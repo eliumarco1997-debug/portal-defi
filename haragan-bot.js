@@ -128,8 +128,8 @@ async function placeHedgeOrder(pool, triggerPrice) {
 
   const leverageOk = await setLeverage(hedgeSymbol, hedgeLeverage, key, secret);
   if (!leverageOk) {
-    console.error(`❌ ABORTANDO orden: No se pudo confirmar el apalancamiento ${hedgeLeverage}x en Bitunix. Verifica que no tengas posiciones u órdenes abiertas en ${hedgeSymbol}.`);
-    return false;
+    console.warn(`⚠️ No se pudo confirmar el apalancamiento ${hedgeLeverage}x en Bitunix (puede que ya tengas posición abierta). Continuando con el apalancamiento actual...`);
+    // No abortamos — Bitunix usa el leverage ya configurado para el símbolo
   }
 
   // Usar la cantidad enviada por el dashboard en lugar del valor fijo

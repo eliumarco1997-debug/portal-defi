@@ -18,7 +18,7 @@ async function bitunixRequest(endpoint, method = 'GET', queryParams = '', body =
   const bodyString = body ? JSON.stringify(body) : '';
   const signature  = buildSignature(API_KEY, API_SECRET, nonce, timestamp, queryParams, bodyString);
 
-  const url = `http://localhost:3001/bitunix-api${endpoint}${queryParams ? '?' + queryParams : ''}`;
+  const url = `http://localhost:3002/bitunix-api${endpoint}${queryParams ? '?' + queryParams : ''}`;
   
   const res = await fetch(url, {
     method,
