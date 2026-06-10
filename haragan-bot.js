@@ -18,7 +18,39 @@ const ENV_API_SECRET = process.env.BITUNIX_API_SECRET;
 app.use(cors());
 app.use(express.json());
 
-const STATE_FILE = './state.json';
+const STATE_FILE = process.env.STATE_FILE_PATH || './state.json';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+function encrypt(text) {
+  if (!text || !ENCRYPTION_KEY || ENCRYPTION_KEY.length !== 32) return text;
+  try {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
+  } catch (e) {
+    console.error("Error encrypting:", e.message);
+    return null;
+  }
+}
+
+function decrypt(text) {
+  if (!text || !text.includes(':') || !ENCRYPTION_KEY || ENCRYPTION_KEY.length !== 32) return text;
+  try {
+    const textParts = text.split(':');
+    const iv = Buffer.from(textParts.shift(), 'hex');
+    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (e) {
+    console.error("Error decrypting:", e.message);
+    return null;
+  }
+}
+
 let protectedPools = {};
 
 function saveState() {
@@ -27,8 +59,15 @@ function saveState() {
     for (const pool in protectedPools) {
       const poolData = { ...protectedPools[pool] };
       delete poolData.contract;
-      delete poolData.apiKey;
-      delete poolData.apiSecret;
+      
+      if (ENCRYPTION_KEY && ENCRYPTION_KEY.length === 32) {
+        if (poolData.apiKey) poolData.apiKey = encrypt(poolData.apiKey);
+        if (poolData.apiSecret) poolData.apiSecret = encrypt(poolData.apiSecret);
+      } else {
+        delete poolData.apiKey;
+        delete poolData.apiSecret;
+      }
+      
       stateToSave[pool] = poolData;
     }
     fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2));
@@ -42,7 +81,24 @@ function loadState() {
     if (fs.existsSync(STATE_FILE)) {
       const data = fs.readFileSync(STATE_FILE, 'utf8');
       protectedPools = JSON.parse(data);
-      console.log(`✅ Estado cargado: ${Object.keys(protectedPools).length} pools activos.`);
+      
+      for (const pool in protectedPools) {
+        if (ENCRYPTION_KEY && ENCRYPTION_KEY.length === 32) {
+          if (protectedPools[pool].apiKey) {
+            const dec = decrypt(protectedPools[pool].apiKey);
+            if (dec) protectedPools[pool].apiKey = dec;
+          }
+          if (protectedPools[pool].apiSecret) {
+            const dec = decrypt(protectedPools[pool].apiSecret);
+            if (dec) protectedPools[pool].apiSecret = dec;
+          }
+        } else {
+          if (protectedPools[pool].apiKey && protectedPools[pool].apiKey.includes(':')) delete protectedPools[pool].apiKey;
+          if (protectedPools[pool].apiSecret && protectedPools[pool].apiSecret.includes(':')) delete protectedPools[pool].apiSecret;
+        }
+      }
+      
+      console.log(`✅ Estado cargado desde ${STATE_FILE}: ${Object.keys(protectedPools).length} pools activos.`);
     }
   } catch (e) {
     console.error("Error al cargar estado:", e.message);
