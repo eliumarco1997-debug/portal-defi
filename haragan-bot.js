@@ -20,6 +20,8 @@ app.use(express.json());
 
 const STATE_FILE = process.env.STATE_FILE_PATH || './state.json';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
 function encrypt(text) {
   if (!text || !ENCRYPTION_KEY || ENCRYPTION_KEY.length !== 32) return text;
@@ -53,7 +55,7 @@ function decrypt(text) {
 
 let protectedPools = {};
 
-function saveState() {
+async function saveState() {
   try {
     const stateToSave = {};
     for (const pool in protectedPools) {
@@ -70,17 +72,39 @@ function saveState() {
       
       stateToSave[pool] = poolData;
     }
-    fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2));
+    
+    if (UPSTASH_URL && UPSTASH_TOKEN) {
+      await fetch(`${UPSTASH_URL}/set/protectedPools`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+        body: JSON.stringify(stateToSave)
+      });
+    } else {
+      fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2));
+    }
   } catch (e) {
     console.error("Error al guardar estado:", e.message);
   }
 }
 
-function loadState() {
+async function loadState() {
   try {
-    if (fs.existsSync(STATE_FILE)) {
-      const data = fs.readFileSync(STATE_FILE, 'utf8');
-      protectedPools = JSON.parse(data);
+    let rawData = null;
+    
+    if (UPSTASH_URL && UPSTASH_TOKEN) {
+      const res = await fetch(`${UPSTASH_URL}/get/protectedPools`, {
+        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
+      });
+      const json = await res.json();
+      if (json.result) {
+        rawData = typeof json.result === 'string' ? json.result : JSON.stringify(json.result);
+      }
+    } else if (fs.existsSync(STATE_FILE)) {
+      rawData = fs.readFileSync(STATE_FILE, 'utf8');
+    }
+
+    if (rawData) {
+      protectedPools = JSON.parse(rawData);
       
       for (const pool in protectedPools) {
         if (ENCRYPTION_KEY && ENCRYPTION_KEY.length === 32) {
@@ -98,14 +122,14 @@ function loadState() {
         }
       }
       
-      console.log(`✅ Estado cargado desde ${STATE_FILE}: ${Object.keys(protectedPools).length} pools activos.`);
+      console.log(`✅ Estado cargado (${UPSTASH_URL ? 'Redis' : STATE_FILE}): ${Object.keys(protectedPools).length} pools activos.`);
     }
   } catch (e) {
     console.error("Error al cargar estado:", e.message);
   }
 }
 
-loadState();
+await loadState();
 
 const POOL_ABI = [
   "function token0() external view returns (address)",
@@ -351,7 +375,7 @@ async function handleSwap(poolAddress, sqrtPriceX96) {
     let price = price1;
     if (limits.isReversed === undefined) {
       limits.isReversed = Math.abs(price2 - limits.lowerBound) < Math.abs(price1 - limits.lowerBound);
-      saveState();
+      await saveState();
     }
     if (limits.isReversed) price = price2;
 
@@ -366,7 +390,7 @@ async function handleSwap(poolAddress, sqrtPriceX96) {
       if (success) {
         limits.isHedged = true;
         limits.hedgeEntryPrice = price; // Guardamos precio de apertura del SHORT
-        saveState();
+        await saveState();
         console.log(`📌 Precio de entrada del SHORT guardado: ${price.toFixed(4)}`);
         console.log(`📌 El SHORT se cerrará cuando el precio suba ${stopLossPct}% (≥ ${(price * (1 + stopLossPct / 100)).toFixed(4)})`);
       }
@@ -387,7 +411,7 @@ async function handleSwap(poolAddress, sqrtPriceX96) {
         if (success) {
           limits.isHedged = false;
           limits.hedgeEntryPrice = null;
-          saveState();
+          await saveState();
           console.log(`🔁 SHORT cerrado. El bot vuelve a modo GUARDIA. Esperando próxima caída...`);
         }
       }
@@ -432,7 +456,7 @@ app.post('/api/bot/protect', async (req, res) => {
         ...(orderType && { orderType }),
         isReversed: undefined
       });
-      saveState();
+      await saveState();
       console.log(`🛡️ Pool ${poolAddress} actualizado.`);
       return res.json({ success: true, message: "Configuración actualizada", poolAddress });
     }
@@ -470,7 +494,7 @@ app.post('/api/bot/protect', async (req, res) => {
       decimals1: Number(decimals1),
       symbol0, symbol1
     };
-    saveState();
+    await saveState();
     attachSwapListener(poolAddress);
 
     console.log(`🛡️ [El Haragán] Bot en GUARDIA para ${symbol0}/${symbol1}`);
@@ -495,7 +519,7 @@ app.post('/api/bot/protect', async (req, res) => {
         if (success) {
           protectedPools[poolAddress].isHedged = true;
           protectedPools[poolAddress].hedgeEntryPrice = price;
-          saveState();
+          await saveState();
           hedgeOpened = true;
           console.log(`📌 ¡SHORT abierto en Bitunix! Precio: ${price.toFixed(4)}`);
         } else {
@@ -513,7 +537,7 @@ app.post('/api/bot/protect', async (req, res) => {
     if (hedgeError) {
       // Limpiar el pool protegido si falló
       delete protectedPools[poolAddress];
-      saveState();
+      await saveState();
       return res.status(500).json({ success: false, error: hedgeError });
     }
 
@@ -544,7 +568,7 @@ app.post('/api/bot/unprotect', async (req, res) => {
       try { pool.contract.removeAllListeners(); } catch (e) { }
     }
     delete protectedPools[poolAddress];
-    saveState();
+    await saveState();
     console.log(`🛑 Guardia desactivada para ${poolAddress}`);
     res.json({ success: true, message: "Guardia desactivada", poolAddress });
   } else {
