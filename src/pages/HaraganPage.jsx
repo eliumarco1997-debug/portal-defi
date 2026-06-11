@@ -135,7 +135,7 @@ export default function HaraganPage() {
                       {/* ── INDICADOR DE SINCRONÍA CON EL BOT DE RAILWAY ── */}
                       {(() => {
                         const botHasPool = botStatus?.pools?.some(
-                          bp => pos.poolAddress && bp.address.toLowerCase() === pos.poolAddress.toLowerCase()
+                          bp => bp.positionId ? String(bp.positionId) === String(pos.id) : (pos.poolAddress && bp.address.toLowerCase() === pos.poolAddress.toLowerCase())
                         );
                         const botOnline = botStatus?.connectedToWSS;
                         if (!botStatus) return null;
@@ -200,7 +200,7 @@ export default function HaraganPage() {
                             await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/unprotect`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ poolAddress: pos.poolAddress })
+                              body: JSON.stringify({ poolAddress: pos.poolAddress, positionId: pos.id })
                             });
                             
                             setActiveProtections(prev => { const n = {...prev}; delete n[pos.id]; return n; });

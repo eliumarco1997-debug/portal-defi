@@ -97,7 +97,8 @@ export default function CoberturaModal() {
           stopLossPct:      cobStopLoss,
           bitunixApiKey:    newWalletApiKey,
           bitunixApiSecret: newWalletApiSecret,
-          orderType:        cobOrderType
+          orderType:        cobOrderType,
+          positionId:       activePosition.id
         })
       });
       

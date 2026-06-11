@@ -116,9 +116,11 @@ export const AppProvider = ({ children }) => {
               let updated = { ...prev };
               let changed = false;
               Object.keys(updated).forEach(id => {
-                const lp = lpPositions.find(p => p.id === id || p.id === Number(id));
+                const lp = lpPositions.find(p => String(p.id) === String(id));
                 if (lp) {
-                  const botPool = status.pools.find(bp => bp.address.toLowerCase() === lp.poolAddress.toLowerCase());
+                  const botPool = status.pools.find(bp => 
+                    bp.positionId ? String(bp.positionId) === String(id) : bp.address.toLowerCase() === lp.poolAddress.toLowerCase()
+                  );
                   if (botPool) {
                     if (botPool.isHedged && updated[id].isMonitoring) {
                       updated[id].isMonitoring = false;
@@ -128,6 +130,10 @@ export const AppProvider = ({ children }) => {
                       updated[id].isMonitoring = true;
                       changed = true;
                     }
+                  } else {
+                    // Si el bot no tiene esta posición registrada, la removemos de activeProtections
+                    delete updated[id];
+                    changed = true;
                   }
                 }
               });
@@ -144,7 +150,7 @@ export const AppProvider = ({ children }) => {
 
               // Verificar si el bot ya tiene este pool registrado
               const alreadyInBot = status.pools.some(
-                bp => bp.address.toLowerCase() === guard.poolAddress.toLowerCase()
+                bp => bp.positionId ? String(bp.positionId) === String(posId) : bp.address.toLowerCase() === guard.poolAddress.toLowerCase()
               );
               if (alreadyInBot) continue;
 
@@ -191,7 +197,8 @@ export const AppProvider = ({ children }) => {
                   stopLossPct:      stopLoss,
                   bitunixApiKey:    apiKey,
                   bitunixApiSecret: apiSecret,
-                  orderType:        localStorage.getItem('cobOrderType') || 'LIMIT'
+                  orderType:        localStorage.getItem('cobOrderType') || 'LIMIT',
+                  positionId:       String(posId)
                 })
               }).then(r => r.json()).then(data => {
                 if (data.success) {

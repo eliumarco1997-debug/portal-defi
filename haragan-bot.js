@@ -53,24 +53,25 @@ function decrypt(text) {
   }
 }
 
-let protectedPools = {};
+let protectedPositions = {};
+const activePoolContracts = {};
 
 async function saveState() {
   try {
     const stateToSave = {};
-    for (const pool in protectedPools) {
-      const poolData = { ...protectedPools[pool] };
-      delete poolData.contract;
+    for (const key in protectedPositions) {
+      const posData = { ...protectedPositions[key] };
+      delete posData.contract;
       
       if (ENCRYPTION_KEY && ENCRYPTION_KEY.length === 32) {
-        if (poolData.apiKey) poolData.apiKey = encrypt(poolData.apiKey);
-        if (poolData.apiSecret) poolData.apiSecret = encrypt(poolData.apiSecret);
+        if (posData.apiKey) posData.apiKey = encrypt(posData.apiKey);
+        if (posData.apiSecret) posData.apiSecret = encrypt(posData.apiSecret);
       } else {
-        delete poolData.apiKey;
-        delete poolData.apiSecret;
+        delete posData.apiKey;
+        delete posData.apiSecret;
       }
       
-      stateToSave[pool] = poolData;
+      stateToSave[key] = posData;
     }
     
     if (UPSTASH_URL && UPSTASH_TOKEN) {
@@ -104,25 +105,33 @@ async function loadState() {
     }
 
     if (rawData) {
-      protectedPools = JSON.parse(rawData);
+      const parsed = JSON.parse(rawData);
+      protectedPositions = {};
       
-      for (const pool in protectedPools) {
+      for (const key in parsed) {
+        const item = parsed[key];
         if (ENCRYPTION_KEY && ENCRYPTION_KEY.length === 32) {
-          if (protectedPools[pool].apiKey) {
-            const dec = decrypt(protectedPools[pool].apiKey);
-            if (dec) protectedPools[pool].apiKey = dec;
+          if (item.apiKey) {
+            const dec = decrypt(item.apiKey);
+            if (dec) item.apiKey = dec;
           }
-          if (protectedPools[pool].apiSecret) {
-            const dec = decrypt(protectedPools[pool].apiSecret);
-            if (dec) protectedPools[pool].apiSecret = dec;
+          if (item.apiSecret) {
+            const dec = decrypt(item.apiSecret);
+            if (dec) item.apiSecret = dec;
           }
         } else {
-          if (protectedPools[pool].apiKey && protectedPools[pool].apiKey.includes(':')) delete protectedPools[pool].apiKey;
-          if (protectedPools[pool].apiSecret && protectedPools[pool].apiSecret.includes(':')) delete protectedPools[pool].apiSecret;
+          if (item.apiKey && item.apiKey.includes(':')) delete item.apiKey;
+          if (item.apiSecret && item.apiSecret.includes(':')) delete item.apiSecret;
         }
+        
+        if (!item.positionId) {
+          item.positionId = key;
+        }
+        
+        protectedPositions[key] = item;
       }
       
-      console.log(`✅ Estado cargado (${UPSTASH_URL ? 'Redis' : STATE_FILE}): ${Object.keys(protectedPools).length} pools activos.`);
+      console.log(`✅ Estado cargado (${UPSTASH_URL ? 'Redis' : STATE_FILE}): ${Object.keys(protectedPositions).length} posiciones activas.`);
     }
   } catch (e) {
     console.error("Error al cargar estado:", e.message);
@@ -346,78 +355,116 @@ try {
 
 function restoreListeners() {
   if (!wsProvider) return;
-  for (const poolAddress in protectedPools) {
-    attachSwapListener(poolAddress);
-    console.log(`🔄 Listener restaurado para pool ${poolAddress}`);
+  const uniquePoolAddresses = [...new Set(Object.values(protectedPositions).map(pos => pos.poolAddress))];
+  for (const poolAddress of uniquePoolAddresses) {
+    if (poolAddress) {
+      attachSwapListener(poolAddress);
+      console.log(`🔄 Listener restaurado para pool ${poolAddress}`);
+    }
   }
 }
 
 function attachSwapListener(poolAddress) {
-  const limits = protectedPools[poolAddress];
-  if (!limits || limits.contract) return;
-  limits.contract = new ethers.Contract(poolAddress, POOL_ABI, wsProvider);
-  limits.contract.on("Swap", (sender, recipient, amount0, amount1, sqrtPriceX96) => {
-    handleSwap(poolAddress, sqrtPriceX96);
-  });
+  if (!poolAddress || !wsProvider) return;
+  const addrLower = poolAddress.toLowerCase();
+  if (activePoolContracts[addrLower]) return; // ya está escuchando
+  
+  try {
+    const contract = new ethers.Contract(poolAddress, POOL_ABI, wsProvider);
+    activePoolContracts[addrLower] = contract;
+    contract.on("Swap", (sender, recipient, amount0, amount1, sqrtPriceX96) => {
+      handleSwap(poolAddress, sqrtPriceX96);
+    });
+    console.log(`📡 Swap listener adjuntado a ${poolAddress}`);
+  } catch (err) {
+    console.error(`❌ Error al adjuntar listener para ${poolAddress}:`, err.message);
+  }
+}
+
+function detachSwapListenerIfUnused(poolAddress) {
+  if (!poolAddress) return;
+  const addrLower = poolAddress.toLowerCase();
+  
+  const stillInUse = Object.values(protectedPositions).some(
+    pos => pos.poolAddress && pos.poolAddress.toLowerCase() === addrLower
+  );
+  
+  if (!stillInUse && activePoolContracts[addrLower]) {
+    try {
+      activePoolContracts[addrLower].removeAllListeners();
+      console.log(`⏹️ Listener removido para pool ${poolAddress} (no hay posiciones activas)`);
+    } catch (e) {
+      console.warn(`Error al remover listeners para ${poolAddress}:`, e.message);
+    }
+    delete activePoolContracts[addrLower];
+  }
 }
 
 async function handleSwap(poolAddress, sqrtPriceX96) {
-  const limits = protectedPools[poolAddress];
-  if (!limits || limits.isProcessingHedge) return;
-  limits.isProcessingHedge = true;
+  const addrLower = poolAddress.toLowerCase();
+  
+  const matchingPositions = Object.entries(protectedPositions).filter(
+    ([_, pos]) => pos.poolAddress && pos.poolAddress.toLowerCase() === addrLower
+  );
 
-  try {
-    // Calcular precio actual del pool
-    const sqrtPrice = Number(sqrtPriceX96) / (2 ** 96);
-    let price1 = sqrtPrice ** 2 * (10 ** Number(limits.decimals0)) / (10 ** Number(limits.decimals1));
-    let price2 = (1 / (sqrtPrice ** 2)) * (10 ** Number(limits.decimals1)) / (10 ** Number(limits.decimals0));
+  if (matchingPositions.length === 0) return;
 
-    let price = price1;
-    if (limits.isReversed === undefined) {
-      limits.isReversed = Math.abs(price2 - limits.lowerBound) < Math.abs(price1 - limits.lowerBound);
-      await saveState();
-    }
-    if (limits.isReversed) price = price2;
+  for (const [key, posData] of matchingPositions) {
+    if (posData.isProcessingHedge) continue;
+    posData.isProcessingHedge = true;
 
-    const stopLossPct = parseFloat(limits.stopLossPct || 0.5); // % de recuperación para cerrar
+    try {
+      const sqrtPrice = Number(sqrtPriceX96) / (2 ** 96);
+      let price1 = sqrtPrice ** 2 * (10 ** Number(posData.decimals0)) / (10 ** Number(posData.decimals1));
+      let price2 = (1 / (sqrtPrice ** 2)) * (10 ** Number(posData.decimals1)) / (10 ** Number(posData.decimals0));
 
-    console.log(`[${new Date().toLocaleTimeString()}] 📊 ${limits.symbol0}/${limits.symbol1} | Precio: ${price.toFixed(4)} | Límite: ${limits.lowerBound} | SHORT activo: ${limits.isHedged}`);
-
-    // ── CASO 1: PRECIO FUERA DE RANGO ABAJO → Abrir SHORT (si no hay uno abierto) ──
-    if (price < limits.lowerBound && !limits.isHedged) {
-      console.log(`🚨 ¡TRIGGER! Precio (${price.toFixed(4)}) cayó del límite (${limits.lowerBound}). Abriendo SHORT...`);
-      const success = await placeHedgeOrder(limits, price);
-      if (success) {
-        limits.isHedged = true;
-        limits.hedgeEntryPrice = price; // Guardamos precio de apertura del SHORT
+      let price = price1;
+      if (posData.isReversed === undefined) {
+        posData.isReversed = Math.abs(price2 - posData.lowerBound) < Math.abs(price1 - posData.lowerBound);
         await saveState();
-        console.log(`📌 Precio de entrada del SHORT guardado: ${price.toFixed(4)}`);
-        console.log(`📌 El SHORT se cerrará cuando el precio suba ${stopLossPct}% (≥ ${(price * (1 + stopLossPct / 100)).toFixed(4)})`);
       }
+      if (posData.isReversed) price = price2;
 
-      // ── CASO 2: PRECIO SUBIÓ EL % DE STOP-LOSS O SUPERÓ LÍMITE SUPERIOR → Cerrar SHORT ──
-    } else if (limits.isHedged && limits.hedgeEntryPrice) {
-      const closeTarget = limits.hedgeEntryPrice * (1 + stopLossPct / 100);
-      const isAboveTarget = price >= closeTarget;
-      const isAboveUpper = price >= limits.upperBound;
+      const stopLossPct = parseFloat(posData.stopLossPct || 0.5);
 
-      if (isAboveTarget || isAboveUpper) {
-        if (isAboveUpper) {
-          console.log(`⚠️ ¡ALERTA DE SEGURIDAD! El precio (${price.toFixed(4)}) superó el límite superior (${limits.upperBound}). Cerrando SHORT de emergencia para evitar pérdidas descompensadas...`);
-        } else {
-          console.log(`🟢 ¡RECUPERACIÓN! Precio (${price.toFixed(4)}) superó el objetivo (${closeTarget.toFixed(4)}). Cerrando SHORT...`);
-        }
-        const success = await closeHedgeOrder(limits, price);
+      console.log(`[${new Date().toLocaleTimeString()}] 📊 [ID: ${posData.positionId}] ${posData.symbol0}/${posData.symbol1} | Precio: ${price.toFixed(4)} | Límite: ${posData.lowerBound} | SHORT activo: ${posData.isHedged}`);
+
+      if (price < posData.lowerBound && !posData.isHedged) {
+        console.log(`🚨 ¡TRIGGER! Posición ${posData.positionId}: Precio (${price.toFixed(4)}) cayó del límite (${posData.lowerBound}). Abriendo SHORT...`);
+        const success = await placeHedgeOrder(posData, price);
         if (success) {
-          limits.isHedged = false;
-          limits.hedgeEntryPrice = null;
+          posData.isHedged = true;
+          posData.hedgeEntryPrice = price;
           await saveState();
-          console.log(`🔁 SHORT cerrado. El bot vuelve a modo GUARDIA. Esperando próxima caída...`);
+          console.log(`📌 Precio de entrada del SHORT guardado: ${price.toFixed(4)}`);
+          console.log(`📌 El SHORT se cerrará cuando el precio suba ${stopLossPct}% (≥ ${(price * (1 + stopLossPct / 100)).toFixed(4)})`);
+        }
+
+      } else if (posData.isHedged && posData.hedgeEntryPrice) {
+        const closeTarget = posData.hedgeEntryPrice * (1 + stopLossPct / 100);
+        const isAboveTarget = price >= closeTarget;
+        const isAboveUpper = price >= posData.upperBound;
+
+        if (isAboveTarget || isAboveUpper) {
+          if (isAboveUpper) {
+            console.log(`⚠️ ¡ALERTA DE SEGURIDAD! Posición ${posData.positionId}: El precio (${price.toFixed(4)}) superó el límite superior (${posData.upperBound}). Cerrando SHORT de emergencia para evitar pérdidas descompensadas...`);
+          } else {
+            console.log(`🟢 ¡RECUPERACIÓN! Posición ${posData.positionId}: Precio (${price.toFixed(4)}) superó el objetivo (${closeTarget.toFixed(4)}). Cerrando SHORT...`);
+          }
+          const success = await closeHedgeOrder(posData, price);
+          if (success) {
+            posData.isHedged = false;
+            posData.hedgeEntryPrice = null;
+            await saveState();
+            console.log(`🔁 SHORT cerrado. La posición ${posData.positionId} vuelve a modo GUARDIA.`);
+          }
         }
       }
+    } catch (err) {
+      console.error(`Error procesando swap para posición ${posData.positionId}:`, err.message);
+    } finally {
+      posData.isProcessingHedge = false;
     }
-  } finally {
-    limits.isProcessingHedge = false;
   }
 }
 
@@ -431,7 +478,7 @@ app.post('/api/bot/protect', async (req, res) => {
     poolAddress, lowerBound, upperBound,
     hedgeQty, hedgeSymbol, hedgeLeverage, stopLossPct,
     bitunixApiKey, bitunixApiSecret,
-    orderType
+    orderType, positionId
   } = req.body;
 
   if (!poolAddress || !lowerBound || !upperBound) {
@@ -442,9 +489,11 @@ app.post('/api/bot/protect', async (req, res) => {
     return res.status(500).json({ error: "WSS_RPC_URL no configurada. Configura el .env con tu nodo Arbitrum WebSocket." });
   }
 
+  const key = positionId ? String(positionId) : poolAddress.toLowerCase();
+
   try {
-    if (protectedPools[poolAddress]) {
-      Object.assign(protectedPools[poolAddress], {
+    if (protectedPositions[key]) {
+      Object.assign(protectedPositions[key], {
         lowerBound, upperBound,
         ...(hedgeQty && { hedgeQty }),
         ...(hedgeSymbol && { hedgeSymbol }),
@@ -457,12 +506,11 @@ app.post('/api/bot/protect', async (req, res) => {
         isReversed: undefined
       });
       await saveState();
-      console.log(`🛡️ Pool ${poolAddress} actualizado.`);
-      return res.json({ success: true, message: "Configuración actualizada", poolAddress });
+      console.log(`🛡️ Posición ${key} actualizada.`);
+      return res.json({ success: true, message: "Configuración actualizada", key });
     }
 
-    console.log(`🔍 Analizando nuevo pool: ${poolAddress}`);
-    // Usar HTTP Provider para leer datos estáticos y evitar bloqueos por WSS público
+    console.log(`🔍 Analizando nuevo pool para posición ${key}: ${poolAddress}`);
     const httpProvider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
     const poolContract = new ethers.Contract(poolAddress, POOL_ABI, httpProvider);
     const token0Address = await poolContract.token0();
@@ -474,9 +522,11 @@ app.post('/api/bot/protect', async (req, res) => {
     const symbol0 = await token0Contract.symbol();
     const symbol1 = await token1Contract.symbol();
 
-    console.log(`✅ Pool verificado: ${symbol0}/${symbol1}`);
+    console.log(`✅ Pool verificado para posición ${key}: ${symbol0}/${symbol1}`);
 
-    protectedPools[poolAddress] = {
+    protectedPositions[key] = {
+      positionId: positionId ? String(positionId) : null,
+      poolAddress: poolAddress,
       lowerBound,
       upperBound,
       hedgeQty: hedgeQty || '0.01',
@@ -497,11 +547,10 @@ app.post('/api/bot/protect', async (req, res) => {
     await saveState();
     attachSwapListener(poolAddress);
 
-    console.log(`🛡️ [El Haragán] Bot en GUARDIA para ${symbol0}/${symbol1}`);
+    console.log(`🛡️ [El Haragán] Bot en GUARDIA para posición ${key} (${symbol0}/${symbol1})`);
     console.log(`   Límite inferior: ${lowerBound} | Stop-loss recovery: ${stopLossPct}%`);
     console.log(`   El SHORT se abrirá automáticamente cuando el precio caiga por debajo de ${lowerBound}`);
 
-    // Evaluar precio inmediato y disparar el SHORT si está fuera de rango
     let hedgeOpened = false;
     let hedgeError = null;
     try {
@@ -511,85 +560,87 @@ app.post('/api/bot/protect', async (req, res) => {
       if (price < 0.0001) {
         price = (1 / (sqrtPrice ** 2)) * (10 ** Number(decimals1)) / (10 ** Number(decimals0));
       }
-      console.log(`📊 Precio actual: ${price.toFixed(4)} | Límite inferior: ${lowerBound}`);
+      console.log(`📊 Precio actual para posición ${key}: ${price.toFixed(4)} | Límite inferior: ${lowerBound}`);
 
       if (price < lowerBound) {
-        console.log(`⚡ Precio por debajo del límite. Ejecutando SHORT INMEDIATO...`);
-        const success = await placeHedgeOrder(protectedPools[poolAddress], price);
+        console.log(`⚡ Precio por debajo del límite. Ejecutando SHORT INMEDIATO para posición ${key}...`);
+        const success = await placeHedgeOrder(protectedPositions[key], price);
         if (success) {
-          protectedPools[poolAddress].isHedged = true;
-          protectedPools[poolAddress].hedgeEntryPrice = price;
+          protectedPositions[key].isHedged = true;
+          protectedPositions[key].hedgeEntryPrice = price;
           await saveState();
           hedgeOpened = true;
-          console.log(`📌 ¡SHORT abierto en Bitunix! Precio: ${price.toFixed(4)}`);
+          console.log(`📌 ¡SHORT abierto en Bitunix para posición ${key}! Precio: ${price.toFixed(4)}`);
         } else {
           hedgeError = 'Bitunix rechazó la orden. Revisa tus claves API y que tengas saldo USDT en futuros.';
-          console.error(`❌ Bitunix rechazó la orden SHORT.`);
+          console.error(`❌ Bitunix rechazó la orden SHORT para posición ${key}.`);
         }
       } else {
-        console.log(`✅ Precio dentro del rango. Bot vigilando... se abrirá SHORT si baja de ${lowerBound}`);
+        console.log(`✅ Precio dentro del rango. Bot vigilando posición ${key}... se abrirá SHORT si baja de ${lowerBound}`);
       }
     } catch (e) {
       hedgeError = e.message;
-      console.log(`⚠️ No se pudo evaluar precio: ${e.message}`);
+      console.log(`⚠️ No se pudo evaluar precio para posición ${key}: ${e.message}`);
     }
 
     if (hedgeError) {
-      // Limpiar el pool protegido si falló
-      delete protectedPools[poolAddress];
+      delete protectedPositions[key];
       await saveState();
+      detachSwapListenerIfUnused(poolAddress);
       return res.status(500).json({ success: false, error: hedgeError });
     }
 
     const msg = hedgeOpened 
-      ? `SHORT abierto exitosamente para ${symbol0}/${symbol1}` 
-      : `Vigilancia activa para ${symbol0}/${symbol1}. SHORT se abrirá automáticamente al salir de rango.`;
-    res.json({ success: true, hedgeOpened, message: msg, poolAddress });
+      ? `SHORT abierto exitosamente para posición ${key} (${symbol0}/${symbol1})` 
+      : `Vigilancia activa para posición ${key} (${symbol0}/${symbol1}). SHORT se abrirá automáticamente al salir de rango.`;
+    res.json({ success: true, hedgeOpened, message: msg, key });
 
   } catch (error) {
-    console.error("❌ Error al proteger pool:", error.message);
+    console.error(`❌ Error al proteger posición ${key}:`, error.message);
     res.status(500).json({ error: "Error al conectar con el contrato", details: error.message });
   }
 });
 
 // POST /api/bot/unprotect — Desactivar guardia
 app.post('/api/bot/unprotect', async (req, res) => {
-  const { poolAddress } = req.body;
+  const { poolAddress, positionId } = req.body;
   if (!poolAddress) return res.status(400).json({ error: "Falta poolAddress" });
 
-  if (protectedPools[poolAddress]) {
-    const pool = protectedPools[poolAddress];
-    if (pool.isHedged) {
-      const closePriceRef = pool.hedgeEntryPrice || 0;
-      console.log(`🔒 Cerrando SHORT activo antes de desactivar guardia... Precio de referencia: ${closePriceRef}`);
-      await closeHedgeOrder(pool, closePriceRef);
+  const key = positionId ? String(positionId) : poolAddress.toLowerCase();
+
+  if (protectedPositions[key]) {
+    const pos = protectedPositions[key];
+    if (pos.isHedged) {
+      const closePriceRef = pos.hedgeEntryPrice || 0;
+      console.log(`🔒 Cerrando SHORT activo antes de desactivar guardia para posición ${key}... Precio de referencia: ${closePriceRef}`);
+      await closeHedgeOrder(pos, closePriceRef);
     }
-    if (pool.contract) {
-      try { pool.contract.removeAllListeners(); } catch (e) { }
-    }
-    delete protectedPools[poolAddress];
+    delete protectedPositions[key];
     await saveState();
-    console.log(`🛑 Guardia desactivada para ${poolAddress}`);
-    res.json({ success: true, message: "Guardia desactivada", poolAddress });
+    detachSwapListenerIfUnused(poolAddress);
+    console.log(`🛑 Guardia desactivada para posición ${key}`);
+    res.json({ success: true, message: "Guardia desactivada", key });
   } else {
-    res.json({ success: true, message: "Pool no estaba protegido", poolAddress });
+    res.json({ success: true, message: "Posición no estaba protegida", key });
   }
 });
 
 // GET /api/bot/status — Estado del bot
 app.get('/api/bot/status', (req, res) => {
-  const activePools = Object.keys(protectedPools).map(address => ({
-    address,
-    symbol0: protectedPools[address].symbol0,
-    symbol1: protectedPools[address].symbol1,
-    lowerBound: protectedPools[address].lowerBound,
-    upperBound: protectedPools[address].upperBound,
-    isHedged: protectedPools[address].isHedged,
-    hedgeEntryPrice: protectedPools[address].hedgeEntryPrice,
-    hedgeSymbol: protectedPools[address].hedgeSymbol,
-    hedgeQty: protectedPools[address].hedgeQty,
-    stopLossPct: protectedPools[address].stopLossPct,
-    hasApiKey: !!(protectedPools[address].apiKey || ENV_API_KEY)
+  const activePools = Object.entries(protectedPositions).map(([key, pos]) => ({
+    key,
+    positionId: pos.positionId,
+    address: pos.poolAddress,
+    symbol0: pos.symbol0,
+    symbol1: pos.symbol1,
+    lowerBound: pos.lowerBound,
+    upperBound: pos.upperBound,
+    isHedged: pos.isHedged,
+    hedgeEntryPrice: pos.hedgeEntryPrice,
+    hedgeSymbol: pos.hedgeSymbol,
+    hedgeQty: pos.hedgeQty,
+    stopLossPct: pos.stopLossPct,
+    hasApiKey: !!(pos.apiKey || ENV_API_KEY)
   }));
 
   res.json({
@@ -694,7 +745,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🛡️  Motor "El Haragán" iniciado en el puerto ${PORT}`);
   console.log(`=================================================`);
   console.log(`WSS conectado: ${!!wsProvider}`);
-  console.log(`Pools activos: ${Object.keys(protectedPools).length}`);
+  console.log(`Posiciones activas: ${Object.keys(protectedPositions).length}`);
   console.log(`\nFlujo activo:`);
   console.log(`  1. Precio cae del límite inferior → SHORT abierto automáticamente`);
   console.log(`  2. Precio sube el % de stop-loss  → SHORT cerrado automáticamente`);
