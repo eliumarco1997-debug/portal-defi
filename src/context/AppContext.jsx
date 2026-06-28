@@ -91,20 +91,29 @@ export const AppProvider = ({ children }) => {
         if (data.active_protections) setActiveProtections(data.active_protections);
         if (data.auto_guard_pools) setAutoGuardPools(data.auto_guard_pools);
         if (data.cob_order_type) setCobOrderType(data.cob_order_type);
-      } else if (error && error.code === 'PGRST116') {
-        // Inicializar nuevo usuario migrando localStorage
+      } else {
+        // No existe fila aún — migrar localStorage a la nube
         const localSettings = {
           id: userId,
-          wallet_address: walletAddress,
-          selected_chain: selectedChain,
-          active_wallet_name: activeWalletName,
-          bitunix_api_key: newWalletApiKey,
-          bitunix_api_secret: newWalletApiSecret,
-          active_protections: activeProtections,
-          auto_guard_pools: autoGuardPools,
-          cob_order_type: cobOrderType,
+          wallet_address: localStorage.getItem('walletAddress') || null,
+          selected_chain: localStorage.getItem('selectedChain') || null,
+          active_wallet_name: localStorage.getItem('activeWalletName') || null,
+          bitunix_api_key: localStorage.getItem('newWalletApiKey') || null,
+          bitunix_api_secret: localStorage.getItem('newWalletApiSecret') || null,
+          active_protections: JSON.parse(localStorage.getItem('activeProtections') || '{}'),
+          auto_guard_pools: JSON.parse(localStorage.getItem('autoGuardPools') || '{}'),
+          cob_order_type: localStorage.getItem('cobOrderType') || 'LIMIT',
         };
-        await supabase.from('user_settings').insert(localSettings);
+        await supabase.from('user_settings').upsert(localSettings);
+        // Cargar en estado los datos del localStorage que migramos
+        if (localSettings.wallet_address) setWalletAddress(localSettings.wallet_address);
+        if (localSettings.selected_chain) setSelectedChain(localSettings.selected_chain);
+        if (localSettings.active_wallet_name) setActiveWalletName(localSettings.active_wallet_name);
+        if (localSettings.bitunix_api_key) setNewWalletApiKey(localSettings.bitunix_api_key);
+        if (localSettings.bitunix_api_secret) setNewWalletApiSecret(localSettings.bitunix_api_secret);
+        if (localSettings.active_protections) setActiveProtections(localSettings.active_protections);
+        if (localSettings.auto_guard_pools) setAutoGuardPools(localSettings.auto_guard_pools);
+        if (localSettings.cob_order_type) setCobOrderType(localSettings.cob_order_type);
       }
       setIsSettingsLoaded(true);
     };
@@ -126,18 +135,20 @@ export const AppProvider = ({ children }) => {
 
     if (userId && isSettingsLoaded) {
       const saveSettings = setTimeout(async () => {
-        await supabase.from('user_settings').update({
-          wallet_address: walletAddress,
-          selected_chain: selectedChain,
-          active_wallet_name: activeWalletName,
-          bitunix_api_key: newWalletApiKey,
-          bitunix_api_secret: newWalletApiSecret,
-          active_protections: activeProtections,
-          auto_guard_pools: autoGuardPools,
-          cob_order_type: cobOrderType,
+        // upsert: crea la fila si no existe, la actualiza si sí existe
+        await supabase.from('user_settings').upsert({
+          id: userId,
+          wallet_address: walletAddress || null,
+          selected_chain: selectedChain || null,
+          active_wallet_name: activeWalletName || null,
+          bitunix_api_key: newWalletApiKey || null,
+          bitunix_api_secret: newWalletApiSecret || null,
+          active_protections: activeProtections || {},
+          auto_guard_pools: autoGuardPools || {},
+          cob_order_type: cobOrderType || 'LIMIT',
           updated_at: new Date().toISOString()
-        }).eq('id', userId);
-      }, 500); // Pequeño debounce para no saturar Supabase
+        });
+      }, 500);
 
       return () => clearTimeout(saveSettings);
     }
