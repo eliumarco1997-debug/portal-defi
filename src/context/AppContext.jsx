@@ -458,7 +458,8 @@ export const AppProvider = ({ children }) => {
         await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/unprotect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ poolAddress: pos.poolAddress })
+          body: JSON.stringify({ poolAddress: pos.poolAddress, positionId: posId })
+
         });
       } catch (err) {
         console.warn('Bot no disponible:', err.message);
