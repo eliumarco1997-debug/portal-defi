@@ -50,6 +50,10 @@ export default function Header() {
         Mis Wallets {activeWalletName && <span style={{ color: 'var(--primary-neon)', fontSize: '1.2rem', marginLeft: '12px' }}>🔹 {activeWalletName}</span>}
       </h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>
+          👤 {session?.user?.email || 'sin sesión'}
+        </span>
+
         <button 
           onClick={handleForceSync}
           style={{
