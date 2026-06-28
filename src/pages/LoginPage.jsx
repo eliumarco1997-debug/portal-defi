@@ -79,6 +79,7 @@ export default function LoginPage() {
 
           <div className="actions">
             <button
+              type="button"
               className="btn-primary"
               onClick={handleLogin}
               disabled={loading}
@@ -86,6 +87,7 @@ export default function LoginPage() {
               {loading ? 'Cargando...' : 'Iniciar Sesión'}
             </button>
             <button
+              type="button"
               className="btn-secondary"
               onClick={handleSignUp}
               disabled={loading}
