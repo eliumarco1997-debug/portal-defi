@@ -3,12 +3,18 @@ import { ethers } from 'ethers';
 import { fetchUniswapPositions } from '../utils/uniswapService';
 import { fetchRevertDataBatch } from '../utils/revertService';
 import { toBitunixSymbol } from '../utils/bitunixBot';
+import { useAuth } from './AuthContext';
+import { supabase } from '../utils/supabaseClient';
 
 export const AppContext = createContext();
 
 export const useAppContext = () => useContext(AppContext);
 
 export const AppProvider = ({ children }) => {
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
+
   // Navigation State
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'wallets');
   
@@ -62,7 +68,51 @@ export const AppProvider = ({ children }) => {
   const [selectedCobPosition, setSelectedCobPosition] = useState(null);
   const [selectedLpDetails, setSelectedLpDetails] = useState(null);
 
-  // Persist State
+  // Load from Supabase on Login
+  useEffect(() => {
+    if (!userId) {
+      setIsSettingsLoaded(true);
+      return;
+    }
+
+    const loadSettings = async () => {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (data) {
+        if (data.wallet_address) setWalletAddress(data.wallet_address);
+        if (data.selected_chain) setSelectedChain(data.selected_chain);
+        if (data.active_wallet_name) setActiveWalletName(data.active_wallet_name);
+        if (data.bitunix_api_key) setNewWalletApiKey(data.bitunix_api_key);
+        if (data.bitunix_api_secret) setNewWalletApiSecret(data.bitunix_api_secret);
+        if (data.active_protections) setActiveProtections(data.active_protections);
+        if (data.auto_guard_pools) setAutoGuardPools(data.auto_guard_pools);
+        if (data.cob_order_type) setCobOrderType(data.cob_order_type);
+      } else if (error && error.code === 'PGRST116') {
+        // Inicializar nuevo usuario migrando localStorage
+        const localSettings = {
+          id: userId,
+          wallet_address: walletAddress,
+          selected_chain: selectedChain,
+          active_wallet_name: activeWalletName,
+          bitunix_api_key: newWalletApiKey,
+          bitunix_api_secret: newWalletApiSecret,
+          active_protections: activeProtections,
+          auto_guard_pools: autoGuardPools,
+          cob_order_type: cobOrderType,
+        };
+        await supabase.from('user_settings').insert(localSettings);
+      }
+      setIsSettingsLoaded(true);
+    };
+
+    loadSettings();
+  }, [userId]);
+
+  // Persist State to LocalStorage and Supabase
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
     localStorage.setItem('walletAddress', walletAddress);
@@ -72,7 +122,26 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('newWalletApiSecret', newWalletApiSecret);
     localStorage.setItem('activeProtections', JSON.stringify(activeProtections));
     localStorage.setItem('autoGuardPools', JSON.stringify(autoGuardPools));
-  }, [activeTab, walletAddress, selectedChain, activeWalletName, newWalletApiKey, newWalletApiSecret, activeProtections, autoGuardPools]);
+    localStorage.setItem('cobOrderType', cobOrderType);
+
+    if (userId && isSettingsLoaded) {
+      const saveSettings = setTimeout(async () => {
+        await supabase.from('user_settings').update({
+          wallet_address: walletAddress,
+          selected_chain: selectedChain,
+          active_wallet_name: activeWalletName,
+          bitunix_api_key: newWalletApiKey,
+          bitunix_api_secret: newWalletApiSecret,
+          active_protections: activeProtections,
+          auto_guard_pools: autoGuardPools,
+          cob_order_type: cobOrderType,
+          updated_at: new Date().toISOString()
+        }).eq('id', userId);
+      }, 500); // Pequeño debounce para no saturar Supabase
+
+      return () => clearTimeout(saveSettings);
+    }
+  }, [userId, isSettingsLoaded, activeTab, walletAddress, selectedChain, activeWalletName, newWalletApiKey, newWalletApiSecret, activeProtections, autoGuardPools, cobOrderType]);
 
   // Format Helpers
   const formatPrice = (p) => {
@@ -462,7 +531,8 @@ export const AppProvider = ({ children }) => {
       showCoberturaModal, setShowCoberturaModal,
       selectedCobPosition, setSelectedCobPosition,
       selectedLpDetails, setSelectedLpDetails,
-      scanPositions, toggleAutoGuard, formatPrice, formatAge
+      scanPositions, toggleAutoGuard, formatPrice, formatAge,
+      isSettingsLoaded
     }}>
       {children}
     </AppContext.Provider>
