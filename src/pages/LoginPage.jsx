@@ -10,6 +10,11 @@ export default function LoginPage() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!email || !password) {
+      setErrorMsg('Por favor, ingresa tu correo y contraseña.');
+      return;
+    }
+    
     setLoading(true);
     setErrorMsg('');
 
@@ -26,6 +31,11 @@ export default function LoginPage() {
 
   const handleSignUp = async (e) => {
     e.preventDefault();
+    if (!email || !password) {
+      setErrorMsg('Por favor, ingresa tu correo y contraseña para registrarte.');
+      return;
+    }
+
     setLoading(true);
     setErrorMsg('');
 
