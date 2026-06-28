@@ -62,7 +62,7 @@ export default function LoginPage() {
 
         {errorMsg && <div className="error-message">{errorMsg}</div>}
 
-        <form className="login-form">
+        <div className="login-form">
           <div className="input-group">
             <label htmlFor="email">Email</label>
             <input
@@ -105,7 +105,7 @@ export default function LoginPage() {
               {loading ? 'Cargando...' : 'Registrarse'}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
