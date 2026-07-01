@@ -409,11 +409,26 @@ async function closeHedgeOrder(pool, triggerPrice) {
 let wsProvider;
 try {
   let wssUrl = WSS_RPC_URL ? WSS_RPC_URL.trim() : WSS_RPC_URL;
+  
+  // Si el usuario copió un enlace formateado de Markdown del chat (ej. wss://[url](https://url))
+  if (wssUrl && wssUrl.includes('[')) {
+    const match = wssUrl.match(/\[([^\]]+)\]/);
+    if (match) {
+      wssUrl = match[1];
+    }
+  }
+
   if (wssUrl && wssUrl.startsWith('https://')) {
     wssUrl = wssUrl.replace('https://', 'wss://');
   } else if (wssUrl && wssUrl.startsWith('http://')) {
     wssUrl = wssUrl.replace('http://', 'ws://');
   }
+  
+  // Asegurarnos de que tenga protocolo wss si no tiene
+  if (wssUrl && !wssUrl.startsWith('wss://') && !wssUrl.startsWith('ws://')) {
+    wssUrl = 'wss://' + wssUrl;
+  }
+
 
 
   if (wssUrl && !wssUrl.includes("DEMO_KEY_PLEASE_REPLACE")) {
