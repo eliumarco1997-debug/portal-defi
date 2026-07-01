@@ -9,12 +9,23 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || '',
-  process.env.VITE_SUPABASE_ANON_KEY || ''
-);
+let supabase;
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+
+if (supabaseUrl && supabaseAnonKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (err) {
+    console.error("❌ Error inicializando cliente de Supabase:", err.message);
+  }
+} else {
+  console.warn("⚠️ Advertencia: Faltan VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY. El bot no podrá autenticar usuarios.");
+}
 
 const app = express();
+
 const PORT = process.env.PORT || 3002;
 const WSS_RPC_URL = process.env.WSS_RPC_URL || 'wss://arb-mainnet.g.alchemy.com/v2/znxN0ZZnPA2F1f62XbSwR';
 
@@ -49,6 +60,10 @@ async function requireAuth(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Falta token de autorización' });
+  }
+  if (!supabase) {
+    console.error("[AUTH] Error: Supabase client is not initialized because environment variables are missing.");
+    return res.status(500).json({ error: 'El servidor de autenticación no está configurado.' });
   }
   const token = authHeader.split(' ')[1];
   try {
