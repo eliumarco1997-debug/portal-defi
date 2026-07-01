@@ -4,7 +4,7 @@ import { fetchUniswapPositions } from '../utils/uniswapService';
 import { fetchRevertDataBatch } from '../utils/revertService';
 import { toBitunixSymbol } from '../utils/bitunixBot';
 import { useAuth } from './AuthContext';
-import { supabase } from '../utils/supabaseClient';
+import { supabase, botFetch } from '../utils/supabaseClient';
 
 export const AppContext = createContext();
 
@@ -186,7 +186,7 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const fetchBotStatus = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/status`);
+        const res = await botFetch('/api/bot/status');
         if (res.ok) {
           const status = await res.json();
           setBotStatus(status);
@@ -264,9 +264,8 @@ export const AppProvider = ({ children }) => {
 
               console.log(`[Auto-Recovery] Re-registrando pool ${lp.token0.symbol}/${lp.token1.symbol} en el bot...`);
 
-              fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/protect`, {
+              botFetch('/api/bot/protect', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   poolAddress:      lp.poolAddress,
                   lowerBound,
@@ -455,11 +454,9 @@ export const AppProvider = ({ children }) => {
     if (isActive) {
       setAutoGuardPools(prev => { const u = {...prev}; delete u[posId]; return u; });
       try {
-        await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/unprotect`, {
+        await botFetch('/api/bot/unprotect', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ poolAddress: pos.poolAddress, positionId: posId })
-
         });
       } catch (err) {
         console.warn('Bot no disponible:', err.message);
@@ -494,9 +491,8 @@ export const AppProvider = ({ children }) => {
       }));
 
       try {
-        await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3002' : '')}/api/bot/protect`, {
+        await botFetch('/api/bot/protect', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             poolAddress: pos.poolAddress,
             lowerBound: triggerPrice, upperBound: pos.priceMax,

@@ -14,9 +14,39 @@ const WSS_RPC_URL = process.env.WSS_RPC_URL || 'wss://arb-mainnet.g.alchemy.com/
 
 const ENV_API_KEY = process.env.BITUNIX_API_KEY;
 const ENV_API_SECRET = process.env.BITUNIX_API_SECRET;
+const BOT_SECRET = process.env.BOT_SECRET || '';
 
-app.use(cors());
+// CORS: solo permite peticiones desde la URL de producción o localhost en dev
+const allowedOrigins = [
+  'https://portal-defi-production.up.railway.app',
+  'http://localhost:5173',
+  'http://localhost:3002'
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir requests sin origin (ej. el bot llamándose a sí mismo) o de origins permitidos
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Origen bloqueado: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'x-bot-secret']
+}));
 app.use(express.json());
+
+// Middleware: verificar BOT_SECRET en todas las rutas /api/bot/*
+app.use('/api/bot', (req, res, next) => {
+  if (!BOT_SECRET) return next(); // Si no está configurado, no bloquea (backwards compat)
+  const clientSecret = req.headers['x-bot-secret'];
+  if (clientSecret !== BOT_SECRET) {
+    console.warn(`[AUTH] Intento de acceso no autorizado a ${req.path} desde ${req.ip}`);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
 
 const STATE_FILE = process.env.STATE_FILE_PATH || './state.json';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
