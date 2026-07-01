@@ -408,12 +408,13 @@ async function closeHedgeOrder(pool, triggerPrice) {
 
 let wsProvider;
 try {
-  let wssUrl = WSS_RPC_URL;
+  let wssUrl = WSS_RPC_URL ? WSS_RPC_URL.trim() : WSS_RPC_URL;
   if (wssUrl && wssUrl.startsWith('https://')) {
     wssUrl = wssUrl.replace('https://', 'wss://');
   } else if (wssUrl && wssUrl.startsWith('http://')) {
     wssUrl = wssUrl.replace('http://', 'ws://');
   }
+
 
   if (wssUrl && !wssUrl.includes("DEMO_KEY_PLEASE_REPLACE")) {
     console.log(`📡 Conectando a WebSocket RPC: ${wssUrl.substring(0, 45)}...`);
