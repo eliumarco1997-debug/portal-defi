@@ -408,16 +408,25 @@ async function closeHedgeOrder(pool, triggerPrice) {
 
 let wsProvider;
 try {
-  if (WSS_RPC_URL && !WSS_RPC_URL.includes("DEMO_KEY_PLEASE_REPLACE")) {
-    wsProvider = new ethers.WebSocketProvider(WSS_RPC_URL);
+  let wssUrl = WSS_RPC_URL;
+  if (wssUrl && wssUrl.startsWith('https://')) {
+    wssUrl = wssUrl.replace('https://', 'wss://');
+  } else if (wssUrl && wssUrl.startsWith('http://')) {
+    wssUrl = wssUrl.replace('http://', 'ws://');
+  }
+
+  if (wssUrl && !wssUrl.includes("DEMO_KEY_PLEASE_REPLACE")) {
+    console.log(`📡 Conectando a WebSocket RPC: ${wssUrl.substring(0, 45)}...`);
+    wsProvider = new ethers.WebSocketProvider(wssUrl);
     console.log("✅ Conectado al proveedor WSS.");
     restoreListeners();
   } else {
-    console.warn("⚠️ WSS_RPC_URL no configurada.");
+    console.warn("⚠️ WSS_RPC_URL no configurada o demo detectada.");
   }
 } catch (error) {
   console.error("❌ Error al conectar WSS RPC:", error.message);
 }
+
 
 function restoreListeners() {
   if (!wsProvider) return;
