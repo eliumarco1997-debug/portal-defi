@@ -5,8 +5,14 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import fs from 'fs';
 import https from 'https';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL || '',
+  process.env.VITE_SUPABASE_ANON_KEY || ''
+);
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -47,6 +53,27 @@ app.use('/api/bot', (req, res, next) => {
   }
   next();
 });
+
+// Middleware: Validar Supabase JWT (Bearer Token)
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Falta token de autorización' });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.warn(`[AUTH] Token inválido enviado a ${req.path}`);
+      return res.status(401).json({ error: 'Token de autenticación inválido' });
+    }
+    req.userId = user.id;
+    next();
+  } catch (err) {
+    console.error('[AUTH] Error verificando JWT:', err.message);
+    return res.status(500).json({ error: 'Error interno de autenticación' });
+  }
+}
 
 const STATE_FILE = process.env.STATE_FILE_PATH || './state.json';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
@@ -154,7 +181,11 @@ async function loadState() {
           if (item.apiSecret && item.apiSecret.includes(':')) delete item.apiSecret;
         }
         
-        if (!item.positionId) {
+        if (key.includes(':')) {
+          const parts = key.split(':');
+          item.userId = parts[0];
+          item.positionId = parts[1];
+        } else if (!item.positionId) {
           item.positionId = key;
         }
         
@@ -503,7 +534,7 @@ async function handleSwap(poolAddress, sqrtPriceX96) {
 // ─────────────────────────────────────────────
 
 // POST /api/bot/protect — Activar guardia para un pool
-app.post('/api/bot/protect', async (req, res) => {
+app.post('/api/bot/protect', requireAuth, async (req, res) => {
   const {
     poolAddress, lowerBound, upperBound,
     hedgeQty, hedgeSymbol, hedgeLeverage, stopLossPct,
@@ -519,7 +550,7 @@ app.post('/api/bot/protect', async (req, res) => {
     return res.status(500).json({ error: "WSS_RPC_URL no configurada. Configura el .env con tu nodo Arbitrum WebSocket." });
   }
 
-  const key = positionId ? String(positionId) : poolAddress.toLowerCase();
+  const key = req.userId + ':' + (positionId ? String(positionId) : poolAddress.toLowerCase());
 
   try {
     if (protectedPositions[key]) {
@@ -555,6 +586,7 @@ app.post('/api/bot/protect', async (req, res) => {
     console.log(`✅ Pool verificado para posición ${key}: ${symbol0}/${symbol1}`);
 
     protectedPositions[key] = {
+      userId: req.userId,
       positionId: positionId ? String(positionId) : null,
       poolAddress: poolAddress,
       lowerBound,
@@ -632,11 +664,11 @@ app.post('/api/bot/protect', async (req, res) => {
 });
 
 // POST /api/bot/unprotect — Desactivar guardia
-app.post('/api/bot/unprotect', async (req, res) => {
+app.post('/api/bot/unprotect', requireAuth, async (req, res) => {
   const { poolAddress, positionId } = req.body;
   if (!poolAddress) return res.status(400).json({ error: "Falta poolAddress" });
 
-  const key = positionId ? String(positionId) : poolAddress.toLowerCase();
+  const key = req.userId + ':' + (positionId ? String(positionId) : poolAddress.toLowerCase());
 
   if (protectedPositions[key]) {
     const pos = protectedPositions[key];
@@ -656,22 +688,24 @@ app.post('/api/bot/unprotect', async (req, res) => {
 });
 
 // GET /api/bot/status — Estado del bot
-app.get('/api/bot/status', (req, res) => {
-  const activePools = Object.entries(protectedPositions).map(([key, pos]) => ({
-    key,
-    positionId: pos.positionId,
-    address: pos.poolAddress,
-    symbol0: pos.symbol0,
-    symbol1: pos.symbol1,
-    lowerBound: pos.lowerBound,
-    upperBound: pos.upperBound,
-    isHedged: pos.isHedged,
-    hedgeEntryPrice: pos.hedgeEntryPrice,
-    hedgeSymbol: pos.hedgeSymbol,
-    hedgeQty: pos.hedgeQty,
-    stopLossPct: pos.stopLossPct,
-    hasApiKey: !!(pos.apiKey || ENV_API_KEY)
-  }));
+app.get('/api/bot/status', requireAuth, (req, res) => {
+  const activePools = Object.entries(protectedPositions)
+    .filter(([_, pos]) => pos.userId === req.userId)
+    .map(([key, pos]) => ({
+      key,
+      positionId: pos.positionId,
+      address: pos.poolAddress,
+      symbol0: pos.symbol0,
+      symbol1: pos.symbol1,
+      lowerBound: pos.lowerBound,
+      upperBound: pos.upperBound,
+      isHedged: pos.isHedged,
+      hedgeEntryPrice: pos.hedgeEntryPrice,
+      hedgeSymbol: pos.hedgeSymbol,
+      hedgeQty: pos.hedgeQty,
+      stopLossPct: pos.stopLossPct,
+      hasApiKey: !!(pos.apiKey || ENV_API_KEY)
+    }));
 
   res.json({
     status: "running",
